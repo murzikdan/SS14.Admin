@@ -1,6 +1,5 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Content.Server.Database;
-using Content.Shared.Database;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -61,10 +60,7 @@ namespace SS14.Admin.Pages.Bans
 
                 foreach (var entry in entries)
                 {
-                    var ban = new Ban
-                    {
-                        Type = BanType.Server,
-                    };
+                    var ban = new ServerBan();
 
                     var ipAddr = entry.Address;
                     var hwid = entry.Hwid;

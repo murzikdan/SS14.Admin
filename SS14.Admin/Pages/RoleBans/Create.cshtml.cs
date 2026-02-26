@@ -1,6 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using Content.Server.Database;
-using Content.Shared.Database;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -67,17 +66,9 @@ namespace SS14.Admin.Pages.RoleBans
                 return Page();
             }
 
-            var roleBan = new Ban
+            var roleBan = new ServerRoleBan
             {
-                Type = BanType.Role,
-                Roles =
-                [
-                    new BanRole
-                    {
-                        RoleType = split[0],
-                        RoleId = split[1],
-                    }
-                ]
+                RoleId = Input.Role
             };
 
             var error = await _banHelper.FillBanCommon(
@@ -94,7 +85,7 @@ namespace SS14.Admin.Pages.RoleBans
                 return Page();
             }
 
-            _dbContext.Ban.Add(roleBan);
+            _dbContext.RoleBan.Add(roleBan);
             await _dbContext.SaveChangesAsync();
             TempData["HighlightNewBan"] = roleBan.Id;
             TempData["StatusMessage"] = "Role ban created";

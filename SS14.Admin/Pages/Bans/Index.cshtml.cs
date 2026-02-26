@@ -1,4 +1,5 @@
-﻿using Content.Server.Database;
+using Content.Server.Database;
+using Content.Shared.Database;
 using JetBrains.Annotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -77,7 +78,7 @@ namespace SS14.Admin.Pages
                 return RedirectToPage("./Index");
             }
 
-            ban.Unban = new Unban
+            ban.Unban = new ServerUnban
             {
                 Ban = ban,
                 UnbanningAdmin = User.Claims.GetUserId(),
@@ -92,20 +93,19 @@ namespace SS14.Admin.Pages
         [MustUseReturnValue]
         public static async Task<ISortState> LoadSortBanTableData(
             PaginationState<Ban> pagination,
-            IQueryable<BanHelper.BanJoin> query,
+            IQueryable<BanHelper.BanJoin<ServerBan, ServerUnban>> query,
             string? sort,
             Dictionary<string, string?> allRouteData)
         {
             var bans = query
-                .Select(b => new { b.Ban, b.Players, b.Admin, b.UnbanAdmin, HitCount = b.Ban.BanHits!.Count });
+                .Select(b => new { b.Ban, b.Player, b.Admin, b.UnbanAdmin, HitCount = b.Ban.BanHits!.Count });
 
             var sortState = Helpers.SortState.Build(bans);
-            sortState.AddColumnMultiple("name", b => b.Players.Select(p => p.LastSeenUserName));
-            sortState.AddColumnMultiple("ip", b => b.Ban.Addresses!.Select(a => a.Address));
-            sortState.AddColumnMultiple("uid", b => b.Ban.Players!.Select(p => p.UserId));
+            sortState.AddColumn("name", b => b.Player!.LastSeenUserName);
+            sortState.AddColumn("ip", b => b.Ban.Address);
+            sortState.AddColumn("uid", b => b.Ban.PlayerUserId);
             sortState.AddColumn("time", p => p.Ban.BanTime, SortOrder.Descending);
-            sortState.AddColumnMultiple("round", p => p.Ban.Rounds!.Select(r => r.RoundId));
-            // sortState.AddColumn("expire_time", p => p.ban.Unban == null ? p.ban.ExpirationTime : p.ban.Unban!.UnbanTime);
+            sortState.AddColumn("round", p => p.Ban.RoundId);
             sortState.AddColumn("admin", p => p.Admin!.LastSeenUserName);
             sortState.AddColumn("hits", p => p.HitCount);
             sortState.Init(sort, allRouteData);
@@ -125,10 +125,10 @@ namespace SS14.Admin.Pages
 
                 return new Ban(
                     b.Ban.Id,
-                    b.Players,
-                    b.Ban.Players!.Select(p => p.UserId.ToString()).ToArray(),
-                    b.Ban.Addresses!.Select(a => a.Address.FormatCidr().ToString()).ToArray(),
-                    b.Ban.Hwids!.Select(h => h.HWId.ToImmutable().ToString()).ToArray(),
+                    b.Player,
+                    b.Ban.PlayerUserId?.ToString(),
+                    b.Ban.Address?.FormatCidr().ToString(),
+                    ((ImmutableTypedHwid?)b.Ban.HWId)?.ToString(),
                     b.Ban.Reason,
                     b.Ban.ExpirationTime,
                     unbanned,
@@ -136,7 +136,7 @@ namespace SS14.Admin.Pages
                     b.Ban.BanTime,
                     b.Admin?.LastSeenUserName,
                     b.HitCount,
-                    b.Ban.Rounds!.Select(r => r.RoundId).ToArray());
+                    b.Ban.RoundId);
             }));
 
             return sortState;
@@ -144,10 +144,10 @@ namespace SS14.Admin.Pages
 
         public sealed record Ban(
             int Id,
-            Player[] Players,
-            string[] UserIds,
-            string[] Addresses,
-            string[] Hwids,
+            Player? Player,
+            string? UserId,
+            string? Address,
+            string? Hwid,
             string Reason,
             DateTime? Expires,
             (DateTime Time, string Admin)? Unbanned,
@@ -155,7 +155,7 @@ namespace SS14.Admin.Pages
             DateTime BanTime,
             string? Admin,
             int hitCount,
-            int[] Rounds);
+            int? RoundId);
 
         public enum ShowFilter
         {

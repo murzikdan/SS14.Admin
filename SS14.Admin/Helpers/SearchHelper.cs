@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using System.Net;
 using System.Security.Claims;
 using Content.Server.Database;
@@ -35,32 +35,34 @@ public static class SearchHelper
         return query.Where(expr);
     }
 
-    private static Expression<Func<BanHelper.BanJoin, bool>> MakeCommonBanSearchExpression(
+    private static Expression<Func<BanHelper.BanJoin<TBan, TUnban>, bool>> MakeCommonBanSearchExpression<TBan, TUnban>(
         string search, ClaimsPrincipal user)
+        where TBan : IBanCommon<TUnban>
+        where TUnban : IUnbanCommon
     {
         var normalized = search.ToUpperInvariant();
 
-        Expression<Func<BanHelper.BanJoin, bool>> expr = u =>
-            u.Players.Any(p => p.LastSeenUserName.ToUpper().Contains(normalized)) ||
+        Expression<Func<BanHelper.BanJoin<TBan, TUnban>, bool>> expr = u =>
+            u.Player!.LastSeenUserName.ToUpper().Contains(normalized) ||
             u.Admin!.LastSeenUserName.ToUpper().Contains(normalized);
 
         if (Guid.TryParse(search, out var guid))
-            CombineSearch(ref expr, b => b.Ban.Players!.Any(p => p.UserId == guid));
+            CombineSearch(ref expr, b => b.Ban.PlayerUserId == guid);
 
         if (user.IsInRole(Constants.PIIRole) && IPHelper.TryParseCidr(search, out var cidr))
-            CombineSearch(ref expr, b => b.Ban.Addresses!.Any(a => EF.Functions.ContainsOrEqual(cidr, a.Address)));
+            CombineSearch(ref expr, b => EF.Functions.ContainsOrEqual(cidr, b.Ban.Address!.Value));
 
         if (user.IsInRole(Constants.PIIRole) && IPAddress.TryParse(search, out var ip))
-            CombineSearch(ref expr, u => u.Ban.Addresses!.Any(a => EF.Functions.ContainsOrEqual(a.Address, ip)));
+            CombineSearch(ref expr, u => EF.Functions.ContainsOrEqual(u.Ban.Address!.Value, ip));
 
         if (user.IsInRole(Constants.PIIRole) && ImmutableTypedHwid.TryParse(search, out var hwid))
-            CombineSearch(ref expr, u => u.Ban.Hwids!.Any(h => h.HWId.Type == hwid.Type && h.HWId.Hwid == hwid.Hwid.ToArray()));
+            CombineSearch(ref expr, u => u.Ban.HWId!.Type == hwid.Type && u.Ban.HWId.Hwid == hwid.Hwid.ToArray());
 
         return expr;
     }
 
-    public static IQueryable<BanHelper.BanJoin> SearchServerBans(
-        IQueryable<BanHelper.BanJoin> query,
+    public static IQueryable<BanHelper.BanJoin<ServerBan, ServerUnban>> SearchServerBans(
+        IQueryable<BanHelper.BanJoin<ServerBan, ServerUnban>> query,
         string? search, ClaimsPrincipal user)
     {
         if (string.IsNullOrEmpty(search))
@@ -68,13 +70,13 @@ public static class SearchHelper
 
         search = search.Trim();
 
-        var expr = MakeCommonBanSearchExpression(search, user);
+        var expr = MakeCommonBanSearchExpression<ServerBan, ServerUnban>(search, user);
 
         return query.Where(expr);
     }
 
-    public static IQueryable<BanHelper.BanJoin> SearchRoleBans(
-        IQueryable<BanHelper.BanJoin> query,
+    public static IQueryable<BanHelper.BanJoin<ServerRoleBan, ServerRoleUnban>> SearchRoleBans(
+        IQueryable<BanHelper.BanJoin<ServerRoleBan, ServerRoleUnban>> query,
         string? search, ClaimsPrincipal user)
     {
         if (string.IsNullOrEmpty(search))
@@ -82,10 +84,10 @@ public static class SearchHelper
 
         search = search.Trim();
 
-        var expr = MakeCommonBanSearchExpression(search, user);
+        var expr = MakeCommonBanSearchExpression<ServerRoleBan, ServerRoleUnban>(search, user);
 
         // Match role name exactly.
-        CombineSearch(ref expr, u => u.Ban.Roles!.Any(r => r.RoleId == search));
+        CombineSearch(ref expr, u => u.Ban.RoleId == search);
 
         return query.Where(expr);
     }

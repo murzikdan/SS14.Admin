@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Contracts;
 using System.Net;
 using System.Net.Sockets;
@@ -34,45 +34,41 @@ public sealed class BanHelper
         _httpContext = httpContext;
     }
 
-    public IQueryable<BanJoin> CreateServerBanJoin()
+    public IQueryable<BanJoin<ServerBan, ServerUnban>> CreateServerBanJoin()
     {
-        return CreateBanJoin().Where(b => b.Ban.Type == BanType.Server);
+        return CreateBanJoin<ServerBan, ServerUnban>(_dbContext.Ban);
     }
 
-    public IQueryable<BanJoin> CreateRoleBanJoin()
+    public IQueryable<BanJoin<ServerRoleBan, ServerRoleUnban>> CreateRoleBanJoin()
     {
-        return CreateBanJoin().Where(b => b.Ban.Type == BanType.Role);
+        return CreateBanJoin<ServerRoleBan, ServerRoleUnban>(_dbContext.RoleBan);
     }
 
-    private IQueryable<BanJoin> CreateBanJoin()
+    private IQueryable<BanJoin<TBan, TUnban>> CreateBanJoin<TBan, TUnban>(DbSet<TBan> bans)
+        where TBan : class, IBanCommon<TUnban>
+        where TUnban : IUnbanCommon
     {
-        return _dbContext.Ban
-            .AsSplitQuery()
+        return bans
             .Include(b => b.Unban)
-            .Include(b => b.Players)
-            .Include(b => b.Addresses)
-            .Include(b => b.Hwids)
-            .Include(b => b.Roles)
-            .Include(b => b.Rounds)
             .LeftJoin(_dbContext.Player,
-                ban => ban.BanningAdmin, admin => admin.UserId,
-                (ban, admin) => new { ban, admin })
+                ban => ban.PlayerUserId, player => player.UserId,
+                (ban, player) => new { ban, player })
+            .LeftJoin(_dbContext.Player,
+                ban => ban.ban.BanningAdmin, admin => admin.UserId,
+                (ban, admin) => new { ban.ban, ban.player, admin })
             .LeftJoin(_dbContext.Player,
                 ban => ban.ban.Unban!.UnbanningAdmin, unbanAdmin => unbanAdmin.UserId,
-                (ban, unbanAdmin) => new BanJoin
+                (ban, unbanAdmin) => new BanJoin<TBan, TUnban>
                 {
-                    Players = ban.ban.Players!
-                        .Select(p => _dbContext.Player.SingleOrDefault(pp => p.UserId == pp.UserId))
-                        .Where(p => p != null)
-                        .ToArray()!,
                     Ban = ban.ban,
+                    Player = ban.player,
                     Admin = ban.admin,
                     UnbanAdmin = unbanAdmin
                 });
     }
 
     [Pure]
-    public static bool IsBanActive(Ban b)
+    public static bool IsBanActive<TUnban>(IBanCommon<TUnban> b) where TUnban : IUnbanCommon
     {
         return (b.ExpirationTime == null || b.ExpirationTime > DateTime.UtcNow) && b.Unban == null;
     }
@@ -84,11 +80,11 @@ public sealed class BanHelper
         return hwid?.ToString();
     }
 
-    public sealed class BanJoin
+    public sealed class BanJoin<TBan, TUnban> where TBan : IBanCommon<TUnban> where TUnban : IUnbanCommon
     {
-        public Ban Ban { get; set; } = default!;
+        public TBan Ban { get; set; } = default!;
+        public Player? Player { get; set; }
         public Player? Admin { get; set; }
-        public Player[] Players { get; set; } = [];
         public Player? UnbanAdmin { get; set; }
     }
 
@@ -115,13 +111,14 @@ public sealed class BanHelper
     }
 
     /// <returns>Non-null string if an error occured that must be reported to the user.</returns>
-    public async Task<string?> FillBanCommon(
-        Ban ban,
+    public async Task<string?> FillBanCommon<TUnban>(
+        IBanCommon<TUnban> ban,
         string? nameOrUid,
         string? ip,
         string? hwid,
         int lengthMinutes,
         string reason)
+        where TUnban : IUnbanCommon
     {
         if (string.IsNullOrWhiteSpace(nameOrUid) && string.IsNullOrWhiteSpace(ip) && string.IsNullOrWhiteSpace(hwid))
             return "Must provide at least one of name/UID, IP address or HWID.";
@@ -131,17 +128,9 @@ public sealed class BanHelper
 
         if (!string.IsNullOrWhiteSpace(nameOrUid))
         {
-            var userId = await _playerLocator.Resolve(nameOrUid);
-            if (userId == null)
+            ban.PlayerUserId = await _playerLocator.Resolve(nameOrUid);
+            if (ban.PlayerUserId == null)
                 return $"Unable to find user with name {nameOrUid}";
-
-            ban.Players =
-            [
-                new BanPlayer
-                {
-                    UserId = userId.Value,
-                }
-            ];
         }
 
         if (!string.IsNullOrWhiteSpace(ip))
@@ -155,13 +144,7 @@ public sealed class BanHelper
             // Ban /64 on IPv6.
             parsedCidr ??= (byte)(parsedIp.AddressFamily == AddressFamily.InterNetwork ? 32 : 64);
 
-            ban.Addresses =
-            [
-                new BanAddress
-                {
-                    Address = new NpgsqlInet(parsedIp, parsedCidr.Value)
-                }
-            ];
+            ban.Address = new NpgsqlInet(parsedIp, parsedCidr.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(hwid))
@@ -170,13 +153,7 @@ public sealed class BanHelper
             if (!ImmutableTypedHwid.TryParse(hwid, out var parsedHwid))
                 return "Invalid HWID";
 
-            ban.Hwids =
-            [
-                new BanHwid
-                {
-                    HWId = parsedHwid,
-                }
-            ];
+            ban.HWId = parsedHwid;
         }
 
         if (lengthMinutes != 0)

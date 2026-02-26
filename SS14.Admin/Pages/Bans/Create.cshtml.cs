@@ -1,6 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using Content.Server.Database;
-using Content.Shared.Database;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -55,10 +54,7 @@ namespace SS14.Admin.Pages.Bans
 
             ExemptFlags = BanExemptions.GetExemptionFromForm(Request.Form);
 
-            var ban = new Ban
-            {
-                Type = BanType.Server,
-            };
+            var ban = new ServerBan();
 
             var ipAddr = Input.IP;
             var hwid = Input.HWid;
